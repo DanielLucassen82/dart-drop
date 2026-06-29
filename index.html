@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>DART DROP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0f0a;
+    --panel:#10180f;
+    --line:#1d3318;
+    --green:#39ff14;       /* Ziel-Farbe / Phosphor */
+    --green-dim:#1f8c12;
+    --amber:#ffce3a;
+    --red:#ff3b30;
+    --text:#cfeac7;
+    --muted:#6f8c69;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(120% 90% at 50% 0%, #0e1a0d 0%, var(--bg) 60%, #050805 100%);
+    color:var(--text);
+    font-family:'Press Start 2P', ui-monospace, "Courier New", monospace;
+    display:flex; align-items:center; justify-content:center;
+    min-height:100%; padding:14px;
+    overflow:hidden;
+    -webkit-font-smoothing:none;
+  }
+
+  /* Spielrahmen – wie ein Arcade-Cabinet-Bildschirm */
+  #wrap{
+    position:relative;
+    width:min(92vw, 480px);
+    aspect-ratio:480/640;
+    border-radius:14px;
+    background:#000;
+    box-shadow:
+      0 0 0 3px #0c160b,
+      0 0 0 6px #060a06,
+      0 0 40px rgba(57,255,20,.12),
+      0 18px 50px rgba(0,0,0,.7);
+    overflow:hidden;
+  }
+  canvas{position:absolute; inset:0; width:100%; height:100%; display:block; cursor:none; touch-action:none}
+
+  /* CRT-Effekte: Scanlines + Vignette + Flackern */
+  .crt{position:absolute; inset:0; pointer-events:none; z-index:5}
+  .crt.scan{
+    background:repeating-linear-gradient(
+      to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,.18) 3px, rgba(0,0,0,.18) 4px);
+    mix-blend-mode:multiply;
+  }
+  .crt.vig{box-shadow:inset 0 0 120px rgba(0,0,0,.85), inset 0 0 30px rgba(0,0,0,.6)}
+  .crt.glow{background:radial-gradient(110% 80% at 50% 20%, rgba(57,255,20,.05), transparent 55%)}
+  @keyframes flick{0%,100%{opacity:.96}50%{opacity:1}}
+  #wrap{animation:flick 6s infinite}
+
+  /* Menü-Overlays */
+  .overlay{
+    position:absolute; inset:0; z-index:8;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:22px; gap:14px; text-align:center;
+    background:rgba(4,8,4,.78);
+    backdrop-filter:blur(1px);
+  }
+  .overlay.hidden{display:none}
+
+  h1{
+    font-size:clamp(20px,7vw,34px); line-height:1.1; letter-spacing:1px;
+    color:var(--green);
+    text-shadow:0 0 8px rgba(57,255,20,.6), 3px 3px 0 #0b3a06;
+  }
+  h1 span{color:var(--amber); text-shadow:0 0 8px rgba(255,206,58,.6), 3px 3px 0 #5a3a00}
+  .sub{font-size:10px; color:var(--text); line-height:1.6}
+  .sub b{color:var(--green)}
+  .hint{font-size:8px; color:var(--muted); line-height:1.8; max-width:300px}
+
+  input[type=text]{
+    font-family:inherit; font-size:12px; text-align:center; text-transform:uppercase;
+    color:var(--green); background:#040804; border:2px solid var(--line);
+    padding:12px 10px; width:230px; outline:none; letter-spacing:2px;
+    border-radius:4px;
+  }
+  input[type=text]:focus{border-color:var(--green); box-shadow:0 0 10px rgba(57,255,20,.25)}
+  input::placeholder{color:#3c5238}
+
+  button{
+    font-family:inherit; font-size:11px; cursor:pointer;
+    color:#04150a; background:var(--green); border:none;
+    padding:13px 18px; border-radius:4px; letter-spacing:1px;
+    box-shadow:0 4px 0 #1f8c12, 0 0 14px rgba(57,255,20,.4);
+    transition:transform .05s, box-shadow .05s;
+  }
+  button:hover{filter:brightness(1.08)}
+  button:active{transform:translateY(3px); box-shadow:0 1px 0 #1f8c12}
+  button.ghost{
+    color:var(--text); background:transparent; border:2px solid var(--line);
+    box-shadow:none; font-size:9px; padding:10px 14px;
+  }
+  button.ghost:hover{border-color:var(--green); color:var(--green)}
+  .row{display:flex; gap:10px; flex-wrap:wrap; justify-content:center}
+
+  .chip{
+    font-size:9px; color:var(--amber); background:#1a1405;
+    border:2px solid #4a3a0c; padding:9px 12px; border-radius:20px;
+    cursor:pointer; letter-spacing:1px;
+  }
+  .chip:hover{background:#241c06; box-shadow:0 0 10px rgba(255,206,58,.25)}
+
+  /* Highscore-Tabelle */
+  .hs{width:100%; max-width:280px; margin-top:4px}
+  .hs h3{font-size:9px; color:var(--muted); margin-bottom:8px; letter-spacing:2px}
+  .hs ol{list-style:none; display:flex; flex-direction:column; gap:5px}
+  .hs li{display:flex; justify-content:space-between; font-size:9px; color:var(--text)}
+  .hs li .rk{color:var(--green-dim); width:22px; text-align:left}
+  .hs li .nm{flex:1; text-align:left; padding:0 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .hs li .sc{color:var(--amber)}
+  .hs li.top .sc, .hs li.top .nm{color:var(--green)}
+  .hs .empty{font-size:8px; color:var(--muted)}
+
+  .mute{font-size:8px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer}
+  .mute input{accent-color:var(--green); transform:scale(1.2)}
+
+  .big-score{font-size:30px; color:var(--amber); text-shadow:0 0 12px rgba(255,206,58,.5)}
+  .gameover{font-size:24px; color:var(--red); text-shadow:0 0 10px rgba(255,59,48,.6), 3px 3px 0 #4a0c08}
+  .newhs{font-size:11px; color:var(--green); animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:.25}}
+
+  @media (prefers-reduced-motion: reduce){
+    #wrap{animation:none}
+    .newhs{animation:none}
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="480" height="640"></canvas>
+  <div class="crt glow"></div>
+  <div class="crt scan"></div>
+  <div class="crt vig"></div>
+
+  <!-- STARTBILDSCHIRM -->
+  <div class="overlay" id="startScreen">
+    <h1>DART<span>DROP</span></h1>
+    <p class="sub">Triff nur die <b>grünen</b> Bälle!<br>Kleiner = mehr Punkte.</p>
+    <div id="quickName" class="row"></div>
+    <input type="text" id="nameInput" placeholder="DEIN NAME" maxlength="12" autocomplete="off" spellcheck="false">
+    <button id="startBtn">▶ START</button>
+    <div class="hs" id="startHs"></div>
+    <p class="hint">5 Leben · grüner Ball am Boden = −1 Leben · falsche Farbe = Minuspunkte · Tempo steigt</p>
+    <label class="mute"><input type="checkbox" id="muteChk"> Ton aus</label>
+  </div>
+
+  <!-- GAME OVER -->
+  <div class="overlay hidden" id="overScreen">
+    <p class="gameover">GAME OVER</p>
+    <p id="newHs" class="newhs hidden">★ NEUER HIGHSCORE ★</p>
+    <p class="sub" id="finalName"></p>
+    <div class="big-score" id="finalScore">0</div>
+    <div class="hs" id="overHs"></div>
+    <div class="row">
+      <button id="replayBtn">↻ NOCHMAL</button>
+      <button id="changeBtn" class="ghost">ANDERER NAME</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- Canvas ----------
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const HUD_H = 56;          // reservierte Kopfzeile
+  const FLOOR = H - 6;       // Bodenlinie
+
+  // ---------- Persistenter Speicher (window.storage) mit Fallback ----------
+  const mem = {};
+  const KEY_NAME = 'dartdrop_lastname';
+  const KEY_HS   = 'dartdrop_highscores';
+  async function storeGet(k){
+    try{ if(window.storage){ const r = await window.storage.get(k); return r ? r.value : null; } }
+    catch(e){ /* Schlüssel fehlt o. nicht verfügbar */ }
+    return (k in mem) ? mem[k] : null;
+  }
+  async function storeSet(k,v){
+    try{ if(window.storage){ await window.storage.set(k, v); return; } }catch(e){}
+    mem[k] = v;
+  }
+
+  // ---------- Audio (Retro-Beeps) ----------
+  let actx = null, muted = false;
+  function audioInit(){ if(!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+  function beep(freq, dur, type, vol, when){
+    if(muted || !actx) return;
+    const t = actx.currentTime + (when||0);
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  const SFX = {
+    hit(size){ beep(680 + size*220, 0.08, 'square', 0.16); beep(1040 + size*260, 0.06, 'square', 0.10, 0.04); },
+    wrong(){ beep(150, 0.22, 'sawtooth', 0.20); },
+    life(){ beep(330,0.12,'square',0.18); beep(180,0.20,'square',0.18,0.10); },
+    bonus(){ [523,659,784,1047].forEach((f,i)=>beep(f,0.10,'triangle',0.16,i*0.06)); },
+    over(){ [523,392,330,262].forEach((f,i)=>beep(f,0.16,'triangle',0.18,i*0.16)); }
+  };
+
+  // ---------- Spielzustand ----------
+  const COLORS = {
+    green:  '#39ff14',
+    red:    '#ff3b30',
+    blue:   '#2f7bff',
+    yellow: '#ffce3a',
+    purple: '#c44bff',
+    orange: '#ff7a18'
+  };
+  const DISTRACT = ['red','blue','yellow','purple','orange'];
+  // Größen: r=Radius, pts=Punkte, spd=Basis-Fallgeschwindigkeit px/s
+  const SIZES = [
+    { name:'big',   r:34, pts:10,  spd:95  },
+    { name:'med',   r:24, pts:25,  spd:120 },
+    { name:'small', r:16, pts:50,  spd:150 }
+  ];
+  const PENALTY = 20;
+  const START_LIVES = 5;
+  const MAX_LIVES = 7;            // Obergrenze inkl. Bonus-Leben
+  const HEART_R = 24;            // Trefferradius des Bonus-Herzens
+  const HEART_BONUS_PTS = 30;     // Punkte, falls Leben schon voll
+
+  let state = 'start';           // 'start' | 'play' | 'over'
+  let balls = [], particles = [], floats = [], powerups = [];
+  let score = 0, lives = START_LIVES;
+  let elapsed = 0, spawnTimer = 0, difficulty = 1, heartTimer = 0;
+  let shake = 0;
+  let playerName = '';
+  let highscores = [];           // [{name, score}]
+  let lastTime = 0;
+  const mouse = { x: W/2, y: H/2, inside:false };
+
+  // ---------- Hilfsfunktionen ----------
+  const rnd = (a,b)=> a + Math.random()*(b-a);
+  const pick = arr => arr[(Math.random()*arr.length)|0];
+  const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+
+  function spawnBall(decorative){
+    const size = pick(SIZES);
+    // Im Spiel ~45% grün, im Attract-Mode gemischt
+    const isGreen = Math.random() < (decorative ? 0.4 : 0.45);
+    const colorName = isGreen ? 'green' : pick(DISTRACT);
+    const x = rnd(size.r + 6, W - size.r - 6);
+    const base = decorative ? size.spd*0.6 : size.spd*difficulty;
+    balls.push({
+      x, y: HUD_H - size.r - rnd(0, 40),
+      r: size.r, vy: base, color: COLORS[colorName],
+      isGreen, pts: size.pts, sizeIdx: SIZES.indexOf(size),
+      flash: 0, wobble: rnd(0, Math.PI*2)
+    });
+  }
+
+  function popParticles(x,y,color,n){
+    for(let i=0;i<n;i++){
+      const a = rnd(0, Math.PI*2), s = rnd(60,260);
+      particles.push({ x,y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life:rnd(.3,.7), max:.7, color, sz:rnd(3,6) });
+    }
+  }
+  function addFloat(x,y,text,color){
+    floats.push({ x,y, text, color, life:.9 });
+  }
+  function spawnHeart(){
+    const x = rnd(HEART_R + 8, W - HEART_R - 8);
+    powerups.push({
+      x, y: HUD_H - HEART_R,
+      vy: 230 + Math.min(elapsed*4, 120),   // fällt schneller als Bälle, aber gut fangbar
+      pulse: 0
+    });
+  }
+
+  // ---------- Eingabe ----------
+  function toCanvas(clientX, clientY){
+    const r = canvas.getBoundingClientRect();
+    return { x:(clientX - r.left) * (W / r.width), y:(clientY - r.top) * (H / r.height) };
+  }
+  function handleHit(px, py){
+    if(state !== 'play') return;
+    // 1) Bonus-Herz getroffen?
+    for(let i=0;i<powerups.length;i++){
+      const h = powerups[i];
+      if(Math.hypot(h.x-px, h.y-py) <= HEART_R + 4){
+        if(lives < MAX_LIVES){
+          lives++;
+          addFloat(h.x, h.y, '+1 \u2665', '#ff5fa2');
+        } else {
+          score += HEART_BONUS_PTS;
+          addFloat(h.x, h.y, '+'+HEART_BONUS_PTS, '#ff5fa2');
+        }
+        popParticles(h.x, h.y, '#ff5fa2', 16);
+        SFX.bonus();
+        powerups.splice(i,1);
+        return;
+      }
+    }
+    // 2) nächstgelegenen getroffenen Ball wählen
+    let best = -1, bestD = Infinity;
+    for(let i=0;i<balls.length;i++){
+      const b = balls[i];
+      const d = Math.hypot(b.x-px, b.y-py);
+      if(d <= b.r && d < bestD){ bestD = d; best = i; }
+    }
+    if(best === -1) return; // ins Leere geklickt – kein Malus
+    const b = balls[best];
+    if(b.isGreen){
+      score += b.pts;
+      addFloat(b.x, b.y, '+'+b.pts, '#39ff14');
+      popParticles(b.x, b.y, b.color, 14);
+      SFX.hit(b.sizeIdx);
+      balls.splice(best,1);
+    } else {
+      score = Math.max(0, score - PENALTY);
+      addFloat(b.x, b.y, '-'+PENALTY, '#ff3b30');
+      b.flash = 0.35; shake = Math.max(shake, 8);
+      SFX.wrong();
+      // falscher Ball bleibt und fällt weiter
+    }
+  }
+
+  canvas.addEventListener('mousemove', e=>{
+    const p = toCanvas(e.clientX, e.clientY);
+    mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
+  });
+  canvas.addEventListener('mouseleave', ()=> mouse.inside = false);
+  canvas.addEventListener('mousedown', e=>{
+    const p = toCanvas(e.clientX, e.clientY);
+    mouse.x = p.x; mouse.y = p.y;
+    handleHit(p.x, p.y);
+  });
+  canvas.addEventListener('touchstart', e=>{
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    const p = toCanvas(t.clientX, t.clientY);
+    mouse.x = p.x; mouse.y = p.y; mouse.inside = true;
+    handleHit(p.x, p.y);
+  }, {passive:false});
+
+  // ---------- Update ----------
+  function update(dt){
+    // Partikel & Floats laufen in allen Zuständen
+    for(let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 520*dt; p.life -= dt;
+      if(p.life <= 0) particles.splice(i,1);
+    }
+    for(let i=floats.length-1;i>=0;i--){
+      const f = floats[i]; f.y -= 38*dt; f.life -= dt;
+      if(f.life <= 0) floats.splice(i,1);
+    }
+    if(shake > 0) shake = Math.max(0, shake - 30*dt);
+
+    const playing = state === 'play';
+    if(playing){
+      elapsed += dt;
+      difficulty = clamp(1 + elapsed*0.025, 1, 3.3);
+    }
+
+    // Spawning
+    spawnTimer -= dt;
+    if(spawnTimer <= 0){
+      if(playing){
+        spawnBall(false);
+        spawnTimer = clamp(0.95 - elapsed*0.009, 0.38, 0.95);
+      } else {
+        // Attract-Mode hinter dem Menü
+        if(balls.length < 6) spawnBall(true);
+        spawnTimer = rnd(0.7, 1.3);
+      }
+    }
+
+    // Bälle bewegen
+    for(let i=balls.length-1;i>=0;i--){
+      const b = balls[i];
+      b.y += b.vy*dt; b.wobble += dt*4;
+      if(b.flash > 0) b.flash -= dt;
+      if(b.y - b.r > FLOOR){
+        if(playing && b.isGreen){
+          lives--;
+          shake = Math.max(shake, 14);
+          addFloat(b.x, FLOOR-30, '−1 ♥', '#ff3b30');
+          SFX.life();
+          if(lives <= 0){ balls.splice(i,1); gameOver(); break; }
+        }
+        balls.splice(i,1);
+      }
+    }
+
+    // Bonus-Herzen: nur im Spiel spawnen, fallen schnell
+    if(playing){
+      heartTimer -= dt;
+      if(heartTimer <= 0){
+        spawnHeart();
+        heartTimer = rnd(11, 17);   // alle ~11–17 Sek. ein Herz
+      }
+    }
+    for(let i=powerups.length-1;i>=0;i--){
+      const h = powerups[i];
+      h.y += h.vy*dt; h.pulse += dt*7;
+      if(h.y - HEART_R > FLOOR) powerups.splice(i,1); // verpasst – einfach weg
+    }
+  }
+
+  // ---------- Zeichnen ----------
+  function drawBall(b){
+    ctx.save();
+    const wob = Math.sin(b.wobble)*1.5;
+    // Glüh-Aura
+    ctx.shadowColor = b.flash > 0 ? '#ffffff' : b.color;
+    ctx.shadowBlur = b.flash > 0 ? 22 : 14;
+    // Körper
+    ctx.beginPath();
+    ctx.arc(b.x, b.y + wob, b.r, 0, Math.PI*2);
+    ctx.fillStyle = b.flash > 0 ? '#ffffff' : b.color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // dunkler Rand (Pixel-Look)
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,.45)';
+    ctx.stroke();
+    // Glanzpunkt
+    ctx.beginPath();
+    ctx.arc(b.x - b.r*0.32, b.y + wob - b.r*0.32, b.r*0.22, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawDart(x,y){
+    // Spitze (Hotspot) bei (x,y), Körper geht nach unten-rechts
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI/4); // 45°: Spitze oben-links, Schaft unten-rechts
+    // Schatten
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+    // Nadel
+    ctx.fillStyle = '#e8eef0';
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(4,-5); ctx.lineTo(10,-2); ctx.lineTo(10,2); ctx.lineTo(4,5);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    // Barrel
+    ctx.fillStyle = '#9aa4a8';
+    ctx.fillRect(10,-3.5,16,7);
+    ctx.fillStyle = '#6c7579';
+    ctx.fillRect(10,0,16,3.5);
+    // Shaft
+    ctx.fillStyle = '#3a4044';
+    ctx.fillRect(26,-2,8,4);
+    // Flights (rote Feder)
+    ctx.fillStyle = '#ff3b30';
+    ctx.beginPath();
+    ctx.moveTo(34,-2); ctx.lineTo(48,-11); ctx.lineTo(46,0); ctx.lineTo(48,11); ctx.lineTo(34,2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#a81810'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+
+    // Ziel-Fadenkreuz exakt an der Spitze
+    ctx.save();
+    ctx.strokeStyle = 'rgba(57,255,20,.85)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x-10,y); ctx.lineTo(x-3,y); ctx.moveTo(x+3,y); ctx.lineTo(x+10,y);
+    ctx.moveTo(x,y-10); ctx.lineTo(x,y-3); ctx.moveTo(x,y+3); ctx.lineTo(x,y+10);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function heartPath(cx,cy,s){
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + s*0.35);
+    ctx.bezierCurveTo(cx - s*1.1, cy - s*0.35, cx - s*0.5, cy - s*1.0, cx, cy - s*0.35);
+    ctx.bezierCurveTo(cx + s*0.5, cy - s*1.0, cx + s*1.1, cy - s*0.35, cx, cy + s*0.35);
+    ctx.closePath();
+  }
+
+  function drawHeart(cx,cy,s,filled,bonus){
+    heartPath(cx,cy,s);
+    const col = bonus ? '#ff5fa2' : '#ff3b30';
+    if(filled){
+      ctx.fillStyle = col;
+      ctx.shadowColor = col; ctx.shadowBlur = bonus ? 12 : 8;
+      ctx.fill(); ctx.shadowBlur = 0;
+    } else {
+      ctx.strokeStyle = 'rgba(255,59,48,.35)'; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+
+  // Schnell fallendes Bonus-Herz (Power-up)
+  function drawFallingHeart(h){
+    const s = HEART_R * (1 + Math.sin(h.pulse)*0.08);
+    ctx.save();
+    heartPath(h.x, h.y, s);
+    ctx.fillStyle = '#ff5fa2';
+    ctx.shadowColor = '#ff8fc0'; ctx.shadowBlur = 22;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 3; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+    // kleines "+1"
+    ctx.font = "8px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('+1', h.x, h.y - s*0.05);
+    ctx.restore();
+  }
+
+  function pixelText(text, x, y, size, color, align){
+    ctx.font = size + "px 'Press Start 2P', monospace";
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function drawHUD(){
+    // Kopfleiste mit deutlichem Hintergrund
+    ctx.fillStyle = 'rgba(3,8,3,.82)';
+    ctx.fillRect(0,0,W,HUD_H);
+    ctx.strokeStyle = 'rgba(57,255,20,.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0,HUD_H); ctx.lineTo(W,HUD_H); ctx.stroke();
+
+    // PUNKTE (groß, links)
+    pixelText('PUNKTE', 14, 16, 8, '#6f8c69');
+    pixelText(String(score).padStart(5,'0'), 14, 38, 18, '#ffce3a');
+
+    // BEST (mittig, klein)
+    pixelText('BEST', W/2, 16, 7, '#6f8c69', 'center');
+    const best = highscores.length ? highscores[0].score : 0;
+    pixelText(String(best).padStart(5,'0'), W/2, 36, 12, '#39ff14', 'center');
+
+    // LEBEN (rechts) – Basis + Bonus-Herzen
+    pixelText('LEBEN', W - 14, 14, 7, '#6f8c69', 'right');
+    const slots = Math.max(START_LIVES, lives);
+    for(let i=0;i<slots;i++){
+      const filled = i < lives;
+      const bonus  = i >= START_LIVES;        // Extra-Herzen pink markieren
+      drawHeart(W - 16 - i*23, 34, 8, filled, bonus);
+    }
+  }
+
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    ctx.save();
+    if(shake > 0) ctx.translate(rnd(-shake,shake)*0.4, rnd(-shake,shake)*0.4);
+
+    // Hintergrundgitter (dezent)
+    ctx.strokeStyle = 'rgba(57,255,20,.04)'; ctx.lineWidth = 1;
+    for(let gx=0; gx<=W; gx+=40){ ctx.beginPath(); ctx.moveTo(gx,HUD_H); ctx.lineTo(gx,H); ctx.stroke(); }
+    for(let gy=HUD_H; gy<=H; gy+=40){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); }
+
+    // Bodenlinie
+    ctx.strokeStyle = 'rgba(255,59,48,.4)'; ctx.lineWidth = 2;
+    ctx.setLineDash([8,6]);
+    ctx.beginPath(); ctx.moveTo(0,FLOOR); ctx.lineTo(W,FLOOR); ctx.stroke();
+    ctx.setLineDash([]);
+
+    for(const b of balls) drawBall(b);
+    for(const h of powerups) drawFallingHeart(h);
+
+    // Partikel
+    for(const p of particles){
+      ctx.globalAlpha = clamp(p.life/p.max,0,1);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x-p.sz/2, p.y-p.sz/2, p.sz, p.sz);
+    }
+    ctx.globalAlpha = 1;
+
+    // schwebende Punktezahlen
+    for(const f of floats){
+      ctx.globalAlpha = clamp(f.life/0.9,0,1);
+      pixelText(f.text, f.x, f.y, 12, f.color, 'center');
+    }
+    ctx.globalAlpha = 1;
+
+    if(state === 'play'){
+      drawHUD();
+      if(mouse.inside) drawDart(mouse.x, mouse.y);
+    }
+    ctx.restore();
+  }
+
+  function loop(ts){
+    if(!lastTime) lastTime = ts;
+    let dt = (ts - lastTime)/1000;
+    lastTime = ts;
+    if(dt > 0.05) dt = 0.05; // Tab-Wechsel abfangen
+    update(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Highscore-Rendering ----------
+  function renderHsList(el, highlightName, highlightScore){
+    if(!highscores.length){
+      el.innerHTML = '<h3>HIGHSCORES</h3><div class="empty">Noch keine Einträge</div>';
+      return;
+    }
+    let rows = '';
+    highscores.slice(0,7).forEach((h,i)=>{
+      const isTop = (h.name === highlightName && h.score === highlightScore);
+      const safe = h.name.replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+      rows += `<li class="${isTop?'top':''}"><span class="rk">${String(i+1).padStart(2,'0')}</span>`
+            + `<span class="nm">${safe}</span><span class="sc">${h.score}</span></li>`;
+    });
+    el.innerHTML = '<h3>HIGHSCORES</h3><ol>'+rows+'</ol>';
+  }
+
+  // ---------- Screens ----------
+  const startScreen = document.getElementById('startScreen');
+  const overScreen  = document.getElementById('overScreen');
+  const nameInput   = document.getElementById('nameInput');
+  const quickName   = document.getElementById('quickName');
+
+  function showStart(){
+    state = 'start';
+    balls = []; particles = []; floats = []; powerups = [];
+    overScreen.classList.add('hidden');
+    startScreen.classList.remove('hidden');
+    renderHsList(document.getElementById('startHs'));
+    // letzten Namen als Schnellwahl anbieten
+    quickName.innerHTML = '';
+    if(playerName){
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.textContent = '▶ Weiter als ' + playerName;
+      chip.onclick = ()=> startGame(playerName);
+      quickName.appendChild(chip);
+      nameInput.value = playerName;
+    }
+    setTimeout(()=>nameInput.focus(), 50);
+  }
+
+  function startGame(name){
+    audioInit();
+    playerName = (name || nameInput.value || 'PLAYER').trim().toUpperCase().slice(0,12) || 'PLAYER';
+    storeSet(KEY_NAME, playerName);
+    score = 0; lives = START_LIVES; elapsed = 0; difficulty = 1;
+    spawnTimer = 0; heartTimer = rnd(9, 13);
+    balls = []; particles = []; floats = []; powerups = []; shake = 0;
+    startScreen.classList.add('hidden');
+    overScreen.classList.add('hidden');
+    state = 'play';
+  }
+
+  async function gameOver(){
+    state = 'over';
+    SFX.over();
+    // Highscore aktualisieren
+    highscores.push({ name: playerName, score });
+    highscores.sort((a,b)=> b.score - a.score);
+    highscores = highscores.slice(0,10);
+    await storeSet(KEY_HS, JSON.stringify(highscores));
+
+    const isNew = highscores.length && highscores[0].name === playerName && highscores[0].score === score && score > 0;
+    document.getElementById('finalName').textContent = playerName;
+    document.getElementById('finalScore').textContent = String(score).padStart(5,'0');
+    document.getElementById('newHs').classList.toggle('hidden', !isNew);
+    renderHsList(document.getElementById('overHs'), playerName, score);
+    overScreen.classList.remove('hidden');
+  }
+
+  // ---------- Buttons / Eingaben verdrahten ----------
+  document.getElementById('startBtn').onclick = ()=>{
+    const n = nameInput.value.trim();
+    if(!n && !playerName){ nameInput.focus(); nameInput.style.borderColor = '#ff3b30'; return; }
+    startGame(n || playerName);
+  };
+  nameInput.addEventListener('input', ()=> nameInput.style.borderColor = '');
+  nameInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') document.getElementById('startBtn').click(); });
+
+  document.getElementById('replayBtn').onclick = ()=> startGame(playerName);
+  document.getElementById('changeBtn').onclick = ()=> { nameInput.value=''; showStart(); };
+
+  const muteChk = document.getElementById('muteChk');
+  muteChk.addEventListener('change', ()=> muted = muteChk.checked);
+  window.addEventListener('keydown', e=>{ if(e.key === 'm' || e.key === 'M'){ muted = !muted; muteChk.checked = muted; } });
+
+  // ---------- Start ----------
+  (async function init(){
+    const ln = await storeGet(KEY_NAME);
+    if(ln) playerName = ln;
+    const raw = await storeGet(KEY_HS);
+    if(raw){ try{ highscores = JSON.parse(raw) || []; }catch(e){ highscores = []; } }
+    showStart();
+    requestAnimationFrame(loop);
+  })();
+
+})();
+</script>
+</body>
+</html>
